@@ -1,7 +1,8 @@
-(defcustom *motd-preferred-languages* '(:en :fr :es :de :ja :zh)
+(defcustom *motd-preferred-languages* '(:EN :FR :ES :DE :JA :ZH)
   "The ordered list of preferences for language codes."
   :group 'motd
   :type 'list)
+;(setq *motd-preferred-languages* '(:FR :ES :DE :JA :ZH :EN))
 
 (defcustom *motd-url* "http://motd.lisp.org/motds/most-recent"
   "The URL at which to retrieve the most recent messages of the day."
@@ -17,8 +18,7 @@
 
 ;;; This is :latin1 right now because that is what portable AllegroServe
 ;;; writes when not running under Allegro.
-(defvar +cache-external-format+ :latin1)
-;;; XXX - need to use :latin1-ness
+(defvar +motd-cache-external-format+ 'latin-1)
 (defvar *motd-local-cache* (expand-file-name "~/.lisp-motd"))
 (defvar *motd-cache-expiry* (* 12 60 60))
 
@@ -62,11 +62,14 @@
 (defun motd-slurp-cache ()
   (with-current-buffer
       (find-file-noselect *motd-local-cache*)
-    (save-restriction
-      (widen)
-      (buffer-substring-no-properties
-       (point-min)
-       (point-max)))))
+    (setq-local coding-system-for-read +motd-cache-external-format+)
+    (let ((contents (save-restriction
+                      (widen)
+                      (buffer-substring-no-properties
+                       (point-min)
+                       (point-max)))))
+      (kill-buffer (current-buffer))
+      contents)))
 
 (defun motd-load-cache ()
   (motd-restore-cache-from-backup)
@@ -97,6 +100,7 @@
 
 (defun motd-cache-results (results)
   (with-temp-file (motd-cache-backup-name)
+    (setq-local coding-system-for-write +motd-cache-external-format+)
     (let ((standard-output (current-buffer)))
       (insert results)
       standard-output))
@@ -198,5 +202,7 @@
                         *motd-messages-to-cache*))
   (display-buffer "*Lisp Message of the Day*")
   (values))
+
+(motd 3)
 
 (provide 'motd)
