@@ -1,3 +1,5 @@
+;; -*- mode: Lisp; lexical-binding: t; -*-
+
 (defcustom *motd-preferred-languages* '(:EN :FR :ES :DE :JA :ZH)
   "The ordered list of preferences for language codes."
   :group 'motd
@@ -16,7 +18,7 @@
   :type 'integer
   :safe 'integerp)
 
-;;; This is :latin1 right now because that is what portable AllegroServe
+;;; This is :latin-1 right now because that is what portable AllegroServe
 ;;; writes when not running under Allegro.
 (defvar +motd-cache-external-format+ 'latin-1)
 (defvar *motd-local-cache* (expand-file-name "~/.lisp-motd"))
@@ -86,17 +88,16 @@
 (defun motd-load-cached-motds ()
   (motd-motds-if-enough (motd-load-cache)))
 
-(defun motd-http-fetch-motds (url)
-  (let ((result (url-retrieve-synchronously url)))
-    (with-current-buffer result
-      (save-restriction
-        (widen)
-        (let ((beg (beginning-of-buffer)))
-          (forward-paragraph)
-          (forward-line 2))
-        (buffer-substring-no-properties
-         (point)
-         (point-max))))))
+(defun motd-extract-fetched-motds (result)
+  (with-current-buffer result
+    (save-restriction
+      (widen)
+      (let ((beg (beginning-of-buffer)))
+        (forward-paragraph)
+        (forward-line 2))
+      (buffer-substring-no-properties
+       (point)
+       (point-max)))))
 
 (defun motd-cache-results (results)
   (with-temp-file (motd-cache-backup-name)
@@ -106,29 +107,10 @@
       standard-output))
   (motd-restore-cache-from-backup))
 
-(defun motd-fetch-motds ()
-  (let* ((url (mapconcat 'identity
-                         (list *motd-url*
-                               (prin1-to-string *motd-messages-to-cache*))
-                         "/"))
-         (result (motd-http-fetch-motds url)))
-    (motd-cache-results result)
-    (multiple-value-bind (motds requested) (motd-load-cached-motds)
-      motds)))
-
 (defun motd-enough-motds-cached-p ()
   (multiple-value-bind (motds requested) (motd-load-cached-motds)
     (when (<= *motd-messages-to-cache* requested)
       motds)))
-
-(defun motd-load-or-fetch-motds ()
-  (cond
-    ((motd-cache-expired-p)
-     (motd-fetch-motds))
-    (t
-     (multiple-value-bind (motds requested) (motd-load-cached-motds)
-       (or motds
-           (motd-fetch-motds))))))
 
 (defun motd-symbol-name (sym)
   ;; Remove the leading colon from the symbol-name of keywords
@@ -184,25 +166,47 @@
   (with-current-buffer standard-output
     (erase-buffer)))
 
-(defun motd-print-motds (display-at-most)
-  (let* ((standard-output (get-buffer-create "*Lisp Message of the Day*"))
-         (all-motds (when (plusp display-at-most)
-                      (motd-load-or-fetch-motds)))
-         (motds (subseq all-motds 0 (min (length all-motds)
-                                         display-at-most))))
+(defun motd-print-motds (motds)
+  (let ((standard-output (get-buffer-create "*Lisp Message of the Day*")))
     (when motds
       (motd-delete-old-contents)
       (motd-print-motd-header)
       (mapcar 'motd-print-motd motds)
       motds)))
 
+(defun motd-display-motds-from-cache (display-at-most)
+  (multiple-value-bind (motds requested) (motd-load-cached-motds)
+    (motd-print-motds (subseq motds 0 (min (length motds)
+                                           display-at-most)))
+    (display-buffer "*Lisp Message of the Day*")
+    (values)))
+
+(defun motd-handle-async-response (buffer display-at-most)
+  (let ((result (motd-extract-fetched-motds buffer)))
+    (motd-cache-results result)
+    (motd-display-motds-from-cache display-at-most)))
+
+(defun motd-http-fetch-motds (display-at-most)
+  (let ((url (mapconcat 'identity
+                        (list *motd-url*
+                              (prin1-to-string *motd-messages-to-cache*))
+                        "/")))
+    (url-retrieve url
+                  (lambda (status)
+                    (motd-handle-async-response (current-buffer)
+                                                display-at-most)))))
+
+(defun motd-load-or-fetch-motds (display-at-most)
+  (cond
+    ((motd-cache-expired-p)
+     (motd-http-fetch-motds display-at-most))
+    (t
+     (motd-display-motds-from-cache display-at-most))))
+
 (defun motd (display-at-most)
   (interactive "P")
-  (motd-print-motds (or display-at-most
-                        *motd-messages-to-cache*))
-  (display-buffer "*Lisp Message of the Day*")
+  (motd-load-or-fetch-motds (or display-at-most
+                                *motd-messages-to-cache*))
   (values))
-
-(motd 3)
 
 (provide 'motd)
