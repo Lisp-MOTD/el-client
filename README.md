@@ -25,7 +25,7 @@ get the message of the day when you start your Emacs, put this form in
 your init file:
 
     (require 'motd)
-    (lisp-message-of-the-day)
+    (motd 3)
 
 ### License
 
