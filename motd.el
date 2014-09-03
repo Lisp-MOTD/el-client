@@ -18,9 +18,7 @@
   :type 'integer
   :safe 'integerp)
 
-;;; This is :latin-1 right now because that is what portable AllegroServe
-;;; writes when not running under Allegro.
-(defvar +motd-cache-external-format+ 'latin-1)
+(defvar +motd-cache-external-format+ 'utf-8)
 (defvar *motd-local-cache* (expand-file-name "~/.lisp-motd"))
 (defvar *motd-cache-expiry* (* 12 60 60))
 
