@@ -18,6 +18,11 @@
   :type 'integer
   :safe 'integerp)
 
+(defvar *motd-show-message-p-fn* (lambda (tags) t)
+  "This function is given the list of TAGS for a message.  If this
+  function returns NIL, the message will not be shown.")
+;(setf *motd-show-message-p-fn* (lambda (tags) (member :QUICKLISP tags)))
+
 (defvar +motd-cache-external-format+ 'utf-8)
 (defvar *motd-local-cache* (expand-file-name "~/.lisp-motd"))
 (defvar *motd-cache-expiry* (* 12 60 60))
@@ -152,6 +157,11 @@
 (defun motd-find-best-translation (translations)
   (motd-tracking-best translations nil nil))
 
+(defun motd-get-tags (motd)
+  (let* ((p-list (rest motd))
+         (tags (plist-get p-list :TAGS)))
+    tags))
+
 (defun motd-print-motd (motd)
   (let* ((p-list (rest motd))
          (translations (plist-get p-list :TRANSLATIONS))
@@ -172,19 +182,21 @@
       (mapcar 'motd-print-motd motds)
       motds)))
 
-(defun motd-display-motds-from-cache (display-at-most)
+(defun motd-display-motds-from-cache (display-at-most show-message-p-fn)
   (multiple-value-bind (motds requested) (motd-load-cached-motds)
-    (motd-print-motds (subseq motds 0 (min (length motds)
-                                           display-at-most)))
+    (motd-print-motds (remove-if-not show-message-p-fn
+                                     (subseq motds 0 (min (length motds)
+                                                          display-at-most))
+                                     :key 'motd-get-tags))
     (display-buffer "*Lisp Message of the Day*")
     (values)))
 
-(defun motd-handle-async-response (buffer display-at-most)
+(defun motd-handle-async-response (buffer display-at-most show-message-p-fn)
   (let ((result (motd-extract-fetched-motds buffer)))
     (motd-cache-results result)
-    (motd-display-motds-from-cache display-at-most)))
+    (motd-display-motds-from-cache display-at-most show-message-p-fn)))
 
-(defun motd-http-fetch-motds (display-at-most)
+(defun motd-http-fetch-motds (display-at-most show-message-p-fn)
   (let ((url (mapconcat 'identity
                         (list *motd-url*
                               (prin1-to-string *motd-messages-to-cache*))
@@ -192,19 +204,21 @@
     (url-retrieve url
                   (lambda (status)
                     (motd-handle-async-response (current-buffer)
-                                                display-at-most)))))
+                                                display-at-most
+                                                show-message-p-fn)))))
 
-(defun motd-load-or-fetch-motds (display-at-most)
+(defun motd-load-or-fetch-motds (display-at-most show-message-p-fn)
   (cond
     ((motd-cache-expired-p)
-     (motd-http-fetch-motds display-at-most))
+     (motd-http-fetch-motds display-at-most show-message-p-fn))
     (t
-     (motd-display-motds-from-cache display-at-most))))
+     (motd-display-motds-from-cache display-at-most show-message-p-fn))))
 
 (defun motd (display-at-most)
   (interactive "P")
   (motd-load-or-fetch-motds (or display-at-most
-                                *motd-messages-to-cache*))
+                                *motd-messages-to-cache*)
+                            *motd-show-message-p-fn*)
   (values))
 
 (provide 'motd)
